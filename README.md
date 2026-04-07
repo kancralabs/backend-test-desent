@@ -14,6 +14,8 @@ Production-ready REST API built with **FastAPI + PostgreSQL**, featuring JWT aut
 - Cursor-based pagination (Level 6)
 - Proper database indexing for high performance
 - Docker development environment
+- **Auto-migrations**: Database migrations otomatis saat container start
+- **Just commands**: Task automation dengan justfile
 - Alembic migrations
 - Swagger UI documentation
 
@@ -36,33 +38,55 @@ cp .env.example .env
 # Build and start PostgreSQL + FastAPI
 docker-compose up --build
 
-# Wait for "Books API starting up..." message
-# Docs available at: http://localhost:8000/docs
+# Migrations akan otomatis dijalankan saat container start!
+# Wait for "Starting application..." message
+# Docs available at: http://localhost:8001/docs
 ```
 
-### 3. Run Migrations
+### 3. Access API
 
-In a new terminal:
+- **Swagger UI**: http://localhost:8001/docs
+- **ReDoc**: http://localhost:8001/redoc
+- **Health check**: http://localhost:8001/api/v1/ping
+
+**Note**: Port 8001 digunakan untuk menghindari konflik dengan service lain.
+
+---
+
+## Auto-Migrations
+
+Project ini dikonfigurasi untuk menjalankan database migrations secara otomatis setiap kali container start. Ini dilakukan melalui [entrypoint.sh](docker/entrypoint.sh) script.
+
+### Cara Kerja
+
+1. Container start
+2. Wait for PostgreSQL ready
+3. Otomatis run `alembic upgrade head`
+4. Start FastAPI application
+
+### Create Migration Baru
+
+Ketika Anda mengubah models di [app/models/](app/models/), buat migration baru:
 
 ```bash
-# Enter app container
-docker exec -it books_api bash
+# Otomatis dengan timestamp
+just migrate-create
 
-# Generate initial migration
-alembic revision --autogenerate -m "Create books table with indexes"
-
-# Apply migration
-alembic upgrade head
-
-# Exit container
-exit
+# Atau dengan custom message
+just migrate-create-custom "add user table"
 ```
 
-### 4. Access API
+Migration akan otomatis dijalankan saat:
+- Container restart
+- `docker-compose up`
+- Manual dengan `just migrate-up`
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **Health check**: http://localhost:8000/api/v1/ping
+### Migration Best Practices
+
+- Selalu review migration file sebelum commit
+- Test migration dengan `just migrate-down` dan `just migrate-up`
+- Gunakan descriptive names untuk custom migrations
+- Check migration status dengan `just migrate-status`
 
 ---
 
@@ -71,14 +95,14 @@ exit
 ### Level 1: Ping
 
 ```bash
-curl http://localhost:8000/api/v1/ping
+curl http://localhost:8001/api/v1/ping
 # Expected: {"message": "pong"}
 ```
 
 ### Level 2: Echo
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/echo \
+curl -X POST http://localhost:8001/api/v1/echo \
   -H "Content-Type: application/json" \
   -d '{"test": "data", "number": 123}'
 # Expected: {"test": "data", "number": 123}
@@ -91,7 +115,7 @@ curl -X POST http://localhost:8000/api/v1/echo \
 - Password: `secret123`
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/auth/token \
+curl -X POST http://localhost:8001/api/v1/auth/token \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "secret123"}'
 # Expected: {"access_token": "eyJ...", "token_type": "bearer"}
@@ -104,7 +128,7 @@ export TOKEN="<access_token>"
 
 **Create book:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/books \
+curl -X POST http://localhost:8001/api/v1/books \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -118,18 +142,18 @@ curl -X POST http://localhost:8000/api/v1/books \
 **List books (cursor pagination):**
 ```bash
 # First page
-curl "http://localhost:8000/api/v1/books?limit=10" \
+curl "http://localhost:8001/api/v1/books?limit=10" \
   -H "Authorization: Bearer $TOKEN"
 # Expected: {"items": [...], "next_cursor": "eyJ...", "has_more": true}
 
 # Next page (use next_cursor from previous response)
-curl "http://localhost:8000/api/v1/books?limit=10&cursor=<next_cursor>" \
+curl "http://localhost:8001/api/v1/books?limit=10&cursor=<next_cursor>" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 **Get single book:**
 ```bash
-curl "http://localhost:8000/api/v1/books/{book_id}" \
+curl "http://localhost:8001/api/v1/books/{book_id}" \
   -H "Authorization: Bearer $TOKEN"
 # Expected: Single book object or 404
 ```
@@ -138,7 +162,7 @@ curl "http://localhost:8000/api/v1/books/{book_id}" \
 
 **Update book:**
 ```bash
-curl -X PUT "http://localhost:8000/api/v1/books/{book_id}" \
+curl -X PUT "http://localhost:8001/api/v1/books/{book_id}" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -150,7 +174,7 @@ curl -X PUT "http://localhost:8000/api/v1/books/{book_id}" \
 
 **Delete book:**
 ```bash
-curl -X DELETE "http://localhost:8000/api/v1/books/{book_id}" \
+curl -X DELETE "http://localhost:8001/api/v1/books/{book_id}" \
   -H "Authorization: Bearer $TOKEN"
 # Expected: 204 No Content
 ```
@@ -159,7 +183,7 @@ curl -X DELETE "http://localhost:8000/api/v1/books/{book_id}" \
 
 **Filter by author:**
 ```bash
-curl "http://localhost:8000/api/v1/books?author=Robert%20Martin&limit=10" \
+curl "http://localhost:8001/api/v1/books?author=Robert%20Martin&limit=10" \
   -H "Authorization: Bearer $TOKEN"
 # Expected: Only books by Robert Martin
 ```
@@ -167,7 +191,7 @@ curl "http://localhost:8000/api/v1/books?author=Robert%20Martin&limit=10" \
 **Cursor pagination deep page:**
 ```bash
 # Keep following next_cursor to test pagination stability
-curl "http://localhost:8000/api/v1/books?cursor=<deep_cursor>&limit=10" \
+curl "http://localhost:8001/api/v1/books?cursor=<deep_cursor>&limit=10" \
   -H "Authorization: Bearer $TOKEN"
 # Performance should remain <50ms even at page 1000+
 ```
@@ -176,20 +200,20 @@ curl "http://localhost:8000/api/v1/books?cursor=<deep_cursor>&limit=10" \
 
 **401 Unauthorized:**
 ```bash
-curl http://localhost:8000/api/v1/books
+curl http://localhost:8001/api/v1/books
 # Expected: {"error": "Not authenticated", "status_code": 401}
 ```
 
 **404 Not Found:**
 ```bash
-curl "http://localhost:8000/api/v1/books/00000000-0000-0000-0000-000000000000" \
+curl "http://localhost:8001/api/v1/books/00000000-0000-0000-0000-000000000000" \
   -H "Authorization: Bearer $TOKEN"
 # Expected: {"error": "Not Found", "detail": "...", "status_code": 404}
 ```
 
 **422 Validation Error:**
 ```bash
-curl -X POST http://localhost:8000/api/v1/books \
+curl -X POST http://localhost:8001/api/v1/books \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"title": ""}'
@@ -227,17 +251,15 @@ LIMIT 10;
 To test with sample data, create a migration:
 
 ```bash
-# Inside app container
-docker exec -it books_api bash
+# Create seed migration dengan custom message
+just migrate-create-custom "seed sample books"
 
-# Create seed migration
-alembic revision -m "Seed sample books"
+# Edit migration file di alembic/versions/
+# Add sample data generation code
 
-# Edit the migration file in alembic/versions/
-# Add sample data generation code (see plan for example)
-
-# Apply migration
-alembic upgrade head
+# Migration akan auto-apply saat container restart
+# Atau manual apply:
+just migrate-up
 ```
 
 ---
@@ -313,7 +335,89 @@ CREATE INDEX idx_books_author_created ON books(author, created_at DESC);
 
 ## Development
 
-### Run Migrations
+### Using Justfile (Recommended)
+
+Project ini menggunakan `just` untuk task automation. Install just terlebih dahulu:
+
+```bash
+# macOS
+brew install just
+
+# Linux
+cargo install just
+# atau download dari: https://github.com/casey/just
+
+# Lihat semua commands
+just
+```
+
+### Migrations dengan Just
+
+```bash
+# Create migration baru (auto-generated name dengan timestamp)
+just migrate-create
+
+# Create migration dengan custom name
+just migrate-create-custom "add user table"
+
+# Run migrations (opsional, karena auto-run saat container start)
+just migrate-up
+
+# Rollback migration terakhir
+just migrate-down
+
+# Check migration status
+just migrate-status
+
+# View migration history
+just migrate-history
+```
+
+### Docker Management dengan Just
+
+```bash
+# Start services
+just up
+
+# Stop services
+just down
+
+# Rebuild and start
+just build
+
+# View logs (semua services)
+just logs
+
+# View app logs only
+just logs-app
+```
+
+### Code Quality dengan Just
+
+```bash
+# Run tests
+just test
+
+# Run tests dengan coverage
+just test-coverage
+
+# Format code
+just format
+
+# Lint code
+just lint
+
+# Type check
+just typecheck
+
+# Run semua checks
+just check
+
+# Clean cache files
+just clean
+```
+
+### Manual Commands (tanpa Just)
 
 ```bash
 # Generate migration from model changes
@@ -324,21 +428,11 @@ docker exec -it books_api alembic upgrade head
 
 # Rollback last migration
 docker exec -it books_api alembic downgrade -1
-```
 
-### View Logs
-
-```bash
-# App logs
+# View logs
 docker logs -f books_api
-
-# PostgreSQL logs
 docker logs -f books_db
-```
 
-### Stop Services
-
-```bash
 # Stop containers
 docker-compose down
 
@@ -378,22 +472,35 @@ docker-compose down -v
 ```bash
 # Wait for PostgreSQL healthcheck to pass
 docker-compose logs db | grep "database system is ready"
+
+# Atau check logs
+just logs
 ```
 
 **Migration errors:**
 ```bash
 # Check current migration state
-docker exec -it books_api alembic current
+just migrate-status
+
+# View migration history
+just migrate-history
 
 # Reset migrations (DESTRUCTIVE - wipes data)
 docker-compose down -v
-docker-compose up --build
+just build
 ```
 
 **Import errors:**
 ```bash
-# Rebuild container
-docker-compose up --build
+# Clean cache dan rebuild
+just clean
+just build
+```
+
+**Port sudah digunakan:**
+```bash
+# Stop services lain yang menggunakan port 8001 atau 5433
+# Atau edit docker-compose.yml untuk mengubah port mapping
 ```
 
 ---
@@ -408,6 +515,59 @@ docker-compose up --build
 - **Pydantic** v2 - Data validation
 - **python-jose** - JWT implementation
 - **passlib** - Password hashing
+- **Docker** + **Docker Compose** - Containerization
+- **Just** - Command runner (task automation)
+
+---
+
+## Quick Reference
+
+### Most Common Commands
+
+```bash
+# Development Workflow
+just build              # Build dan start services
+just logs-app           # Monitor app logs
+just migrate-create     # Create migration (setelah edit models)
+just down               # Stop services
+
+# Code Quality
+just format                    # Format code
+just lint                      # Check linting
+just test                      # Run tests
+
+# Database
+just migrate-status     # Check migration status
+just migrate-down       # Rollback migration
+just migrate-history           # View migration history
+
+# Troubleshooting
+just clean                     # Clean cache files
+just build              # Rebuild containers
+docker-compose down -v         # Reset database (DESTRUCTIVE)
+```
+
+### Workflow Example
+
+```bash
+# 1. Start development
+just build
+
+# 2. Edit code di app/models/book.py
+# 3. Create migration
+just migrate-create
+
+# 4. Restart untuk apply migration
+just down
+just up
+
+# 5. Test changes
+just test
+
+# 6. Format dan check code
+just format
+just lint
+```
 
 ---
 
