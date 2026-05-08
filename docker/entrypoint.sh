@@ -12,6 +12,10 @@ echo "PostgreSQL is ready!"
 echo "Running database migrations..."
 alembic upgrade head
 
+# Seed books if table is empty
+echo "Checking books seed..."
+python scripts/seed.py
+
 # Start application
 echo "Starting application..."
 exec "$@"

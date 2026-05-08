@@ -1,11 +1,10 @@
 """
-Seed script — inserts 1000 books and 5 users into the database.
+Seed script — inserts 1000 books if the books table is empty.
 
-Usage (inside container):
-    python scripts/seed.py
-
-Usage (via justfile):
-    just seed
+Auto-run on startup via docker/entrypoint.sh.
+Manual run:
+    python scripts/seed.py        # inside container
+    just seed                     # via justfile
 """
 import asyncio
 import random
@@ -13,14 +12,12 @@ import sys
 import uuid
 from datetime import datetime, timedelta
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 sys.path.insert(0, "/app")
 
 from app.core.database import AsyncSessionLocal  # noqa: E402
-from app.core.security import hash_password  # noqa: E402
 from app.models.book import Book  # noqa: E402
-from app.models.user import User  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Data pools
@@ -79,10 +76,6 @@ def random_title() -> str:
     return title
 
 
-def random_year() -> int:
-    return random.randint(1900, 2025)
-
-
 def random_created_at() -> datetime:
     """Spread created_at over the last 3 years for realistic pagination data."""
     days_ago = random.randint(0, 3 * 365)
@@ -90,94 +83,43 @@ def random_created_at() -> datetime:
 
 
 # ---------------------------------------------------------------------------
-# Seed functions
+# Seed
 # ---------------------------------------------------------------------------
 
-SEED_USERS = [
-    {"username": "admin", "email": "admin@example.com", "password": "admin123"},
-    {"username": "alice", "email": "alice@example.com", "password": "alice123"},
-    {"username": "bob", "email": "bob@example.com", "password": "bob12345"},
-    {"username": "charlie", "email": "charlie@example.com", "password": "charlie1"},
-    {"username": "diana", "email": "diana@example.com", "password": "diana123"},
-]
-
-
-async def seed_users(session) -> int:
-    inserted = 0
-    for data in SEED_USERS:
-        existing = await session.execute(
-            select(User).where(User.username == data["username"])
-        )
-        if existing.scalar_one_or_none():
-            print(f"  [skip] user '{data['username']}' already exists")
-            continue
-
-        user = User(
-            username=data["username"],
-            email=data["email"],
-            hashed_password=hash_password(data["password"]),
-        )
-        session.add(user)
-        inserted += 1
-        print(f"  [+] user '{data['username']}'")
-
-    await session.commit()
-    return inserted
-
-
-async def seed_books(session, count: int = 1000) -> int:
-    # Check existing count
-    result = await session.execute(text("SELECT COUNT(*) FROM books"))
-    existing_count = result.scalar()
-
-    if existing_count >= count:
-        print(f"  [skip] {existing_count} books already exist (target={count})")
-        return 0
-
-    to_insert = count - existing_count
-    print(f"  Inserting {to_insert} books (existing={existing_count})...")
-
-    books = []
-    for _ in range(to_insert):
-        created_at = random_created_at()
-        books.append(
-            Book(
-                id=uuid.uuid4(),
-                title=random_title(),
-                author=random_author(),
-                published_year=random_year() if random.random() > 0.1 else None,
-                created_at=created_at,
-                updated_at=created_at,
-            )
-        )
-
-    # Bulk insert in batches of 200
-    batch_size = 200
-    for i in range(0, len(books), batch_size):
-        batch = books[i : i + batch_size]
-        session.add_all(batch)
-        await session.commit()
-        print(f"  [+] {min(i + batch_size, len(books))}/{to_insert} books inserted")
-
-    return to_insert
-
-
-async def main() -> None:
-    print("=" * 50)
-    print("  Seeding database")
-    print("=" * 50)
-
+async def seed_books(count: int = 1000) -> None:
     async with AsyncSessionLocal() as session:
-        print("\n[Users]")
-        users_inserted = await seed_users(session)
+        result = await session.execute(text("SELECT COUNT(*) FROM books"))
+        existing = result.scalar()
 
-        print(f"\n[Books] (target: 1000)")
-        books_inserted = await seed_books(session, count=1000)
+        if existing >= count:
+            print(f"Books seed skipped — {existing} books already exist.")
+            return
 
-    print("\n" + "=" * 50)
-    print(f"  Done! users={users_inserted}  books={books_inserted}")
-    print("=" * 50)
+        to_insert = count - existing
+        print(f"Seeding {to_insert} books (existing={existing})...")
+
+        books = []
+        for _ in range(to_insert):
+            created_at = random_created_at()
+            books.append(
+                Book(
+                    id=uuid.uuid4(),
+                    title=random_title(),
+                    author=random_author(),
+                    published_year=random.randint(1900, 2025) if random.random() > 0.1 else None,
+                    created_at=created_at,
+                    updated_at=created_at,
+                )
+            )
+
+        batch_size = 200
+        for i in range(0, len(books), batch_size):
+            session.add_all(books[i : i + batch_size])
+            await session.commit()
+            print(f"  {min(i + batch_size, len(books))}/{to_insert} inserted")
+
+        print(f"Books seeded: {to_insert}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(seed_books())
