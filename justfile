@@ -71,6 +71,11 @@ local-migrate-status:
     @echo "Current migration status (local):"
     alembic current
 
+# Seed database with 1000 books and sample users
+seed:
+    @echo "Seeding database..."
+    docker-compose exec -T app python scripts/seed.py
+
 # === Docker Management ===
 
 # Start Docker services
