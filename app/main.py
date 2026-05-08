@@ -4,7 +4,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import IntegrityError
 
-from app.api.v1.routers import auth, books, health
+from app.api.v1.routers import auth, books, health, users
 from app.config import settings
 from app.middleware.error_handler import (
     generic_exception_handler,
@@ -41,6 +41,7 @@ app.add_exception_handler(Exception, generic_exception_handler)
 app.include_router(health.router, prefix=settings.api_v1_prefix)
 app.include_router(auth.router, prefix=settings.api_v1_prefix)
 app.include_router(books.router, prefix=settings.api_v1_prefix)
+app.include_router(users.router, prefix=settings.api_v1_prefix)
 
 
 @app.get("/")

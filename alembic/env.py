@@ -11,7 +11,8 @@ from alembic import context
 # Import settings and models
 from app.config import settings
 from app.core.database import Base
-from app.models.book import Book  # Import all models here
+from app.models.book import Book  # noqa: F401
+from app.models.user import User  # noqa: F401
 
 # this is the Alembic Config object
 config = context.config
